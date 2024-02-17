@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import torch
 
@@ -30,7 +32,18 @@ def autocorr(x, window=None, normalize=False):
         results = normalized_max(results)
     return results
 
-def corr(a, b, normalize=False):
+def crosscorr(a, b, window=None, normalize=False):
+    smaller = a if a.shape[0] <= b.shape[0] else b
+    larger = a if a.shape[0] > b.shape[0] else b
+    if window is None:
+        window = smaller.shape[0]
+    results = [np.correlate(smaller[i:window + i], larger, mode='full') for i in range((smaller.shape[0] - window) + 1)]
+    results = np.array([r[r.size // 2:] for r in results])
+    if normalize:
+        results = normalized_max(results)
+    return results
+
+def crosscorr_old(a, b, normalize=False):
     result = np.correlate(a, b, mode='full')
     result = result[result.size // 2:]
     if normalize:
@@ -70,6 +83,7 @@ def magnitude(x):
     return np.sqrt(np.tensordot(x, x, axes=-1))
 
 def save(name="default.txt", data=[], mode="w"):
+    os.makedirs(os.path.dirname(name), exist_ok=True)
     with open(name, mode=mode) as f:
         np.savetxt(f, data, fmt="%-.5f")
     

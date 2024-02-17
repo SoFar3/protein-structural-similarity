@@ -1,4 +1,6 @@
 .DS_Store
 venv
+protein_db
+embeddings
 
 **/__pycache__
