@@ -579,7 +579,7 @@ Max value of layer esm.encoder.layer.35.LayerNorm.weight at index (792,): 0.4931
 Max value of layer esm.encoder.layer.35.LayerNorm.bias at index (696,): 0.278076171875
 Max value of layer esm.encoder.emb_layer_norm_after.weight at index (2502,): 0.42138671875
 Max value of layer esm.encoder.emb_layer_norm_after.bias at index (696,): 0.105712890625
-Max value of layer esm.contact_head.regression.weight at index (0, 912): 0.06471779197454453
+Max value of layer esm.contact_head.regression.weight at index (0, 34): 0.06410177052021027
 Max value of layer esm.contact_head.regression.bias at index (0,): 0.0
 Max value of layer esm_s_mlp.0.weight at index (2320,): 1.02252197265625
 Max value of layer esm_s_mlp.0.bias at index (1517,): 0.3801450729370117

@@ -39,7 +39,7 @@ def graph3d(data, title="3D Graph"):
 def heatmap2d(data, scale=1):
     fig, ax1 = plt.subplots(figsize=(10 * scale, 5 * scale))
     pos = ax1.imshow(data, cmap='hot')
-    fig.colorbar(pos, ax=ax1)
+    fig.colorbar(pos, ax=ax1, shrink=0.7)
     plt.show()
 
 def scatter2d(data):
@@ -51,14 +51,18 @@ def scatter2d(data):
     plt.show()
 
 def scatter3d(data):
-    ax = plt.figure(figsize=(16,10)).add_subplot(projection = '3d')
-    ax.scatter(
+    x, y, z = data[:, 0], data[:, 1], data[:, 2]
+
+    fig = plt.figure(figsize=(16,10))
+    ax = fig.add_subplot(projection = '3d')
+    c = np.arange(len(data)) / len(data)
+    p = ax.scatter(
         xs=data[:, 0], 
         ys=data[:, 1], 
         zs=data[:, 2], 
-        c=np.arange(0, data.shape[0]),
-        cmap='tab10'
+        c=np.arange(0, data.shape[0])    
     )
+    fig.colorbar(p, ax=ax)
     ax.set_xlabel('x')
     ax.set_ylabel('y')
     ax.set_zlabel('z')

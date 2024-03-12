@@ -6,8 +6,15 @@ import torch
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.preprocessing import StandardScaler
 
+from scipy import stats
+
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
+from umap import UMAP
+
+#
+# Normalization and helper functions
+#
 
 def normalized_max(x):
     result = x / x.max(axis=1).reshape((x.shape[0], 1))
@@ -23,6 +30,45 @@ def normalized_z_score(x):
     scaler.fit(x)
     return scaler.transform(x)
 
+def small_large(a, b):
+    smaller = a if a.shape[0] <= b.shape[0] else b
+    larger = a if a.shape[0] > b.shape[0] else b
+    return (smaller, larger)
+
+def remove_min_max(data, iterations=1, replace=1):
+    cdata = np.copy(data)
+    for _ in range(iterations):
+        cdata[cdata == np.max(cdata)] = replace
+        cdata[cdata == np.min(cdata)] = replace
+    return cdata
+
+def slide(x, window=None):
+    x = np.asarray(x)
+    if window is None:
+        window = x.shape[0]
+    start_idx = np.arange(len(x) - window + 1)
+    return np.array([x[i:(i + window)] for i in start_idx])
+
+def slice_of_slice(data, slice1, slice2):
+    return np.array([data[i, slice2[0]:slice2[1]] for i in range(slice1[0], slice1[1])])
+
+def filter(data, threshold, value=0):
+    cdata = np.copy(data)
+    cdata[cdata < threshold] = value
+    return cdata
+
+def highlight(data, slice):
+    mask = np.zeros_like(data)
+    mask[slice[0]:slice[1]+1, :] = 1
+    mask[:, slice[0]:slice[1]+1] = 1
+    
+    masked_matrix = data * mask
+    return masked_matrix
+
+#
+# Protein/Embeddings simmilarity evaluation functions
+#
+
 def autocorr(x, window=None, normalize=False):
     if window is None:
         window = x.shape[0]
@@ -33,8 +79,7 @@ def autocorr(x, window=None, normalize=False):
     return results
 
 def crosscorr(a, b, window=None, normalize=False):
-    smaller = a if a.shape[0] <= b.shape[0] else b
-    larger = a if a.shape[0] > b.shape[0] else b
+    smaller, larger = small_large(a, b)
     if window is None:
         window = smaller.shape[0]
     results = [np.correlate(smaller[i:window + i], larger, mode='full') for i in range((smaller.shape[0] - window) + 1)]
@@ -43,76 +88,94 @@ def crosscorr(a, b, window=None, normalize=False):
         results = normalized_max(results)
     return results
 
-def crosscorr_old(a, b, normalize=False):
-    result = np.correlate(a, b, mode='full')
-    result = result[result.size // 2:]
-    if normalize:
-        result = result / float(result.max())
-    return result
-    
-def remove_min_max(data, iterations=1):
-    cdata = np.copy(data)
-    for _ in range(iterations):
-        cdata[cdata == np.max(cdata)] = 0
-        cdata[cdata == np.min(cdata)] = 0
-    return cdata
+def project(values, mask):
+    numbers_flat = values.flatten()
+    bools_flat = mask.flatten()
+    output_flat = np.zeros_like(bools_flat, dtype=values.dtype)
+    true_indices = np.where(bools_flat)[0]
+    repeat_times = -(-len(true_indices) // len(numbers_flat))
+    repeated_numbers = np.tile(numbers_flat, repeat_times)[:len(true_indices)]
+    output_flat[true_indices] = repeated_numbers
+    return output_flat.reshape(mask.shape)
 
 def embedding_correlation(a, b, window=None):
-    smaller = a if a.shape[0] <= b.shape[0] else b
-    larger = a if a.shape[0] > b.shape[0] else b
+    smaller, larger = small_large(a, b)
     _window = smaller.shape[0] if window is None else window
     autocorr_smaller = autocorr(smaller, _window, normalize=True)
     autocorr_larger = autocorr(larger, _window, normalize=True)
-    emb_corr = [np.corrcoef(np.vstack((autocorr_slice, autocorr_larger)))[0][1:] for autocorr_slice in autocorr_smaller]
+    # emb_corr = [cosine_similarity(np.vstack((autocorr_slice, autocorr_larger)))[0][1:] for autocorr_slice in autocorr_smaller]
+    emb_corr = cosine_similarity(autocorr_smaller, autocorr_larger)
     return np.array(emb_corr)
 
 def protein_correlation(a, b, window=None):
     corr = [embedding_correlation(emb1, emb2, window) for (emb1, emb2) in zip(a, b)]
     return np.array(corr)
 
-# a and b are 2d arrays
-def multidim_corr(a, b):
-    min_dim = min(a.shape[1], b.shape[1])
-    max_dim = max(a.shape[1], b.shape[1])
-    corr = np.zeros(shape=((max_dim - min_dim) + 1, a.shape[0]))
-    for i in range((max_dim - min_dim) + 1):
-        corr[i] = np.array([np.corrcoef(a[j, :min_dim], b[j, i:min_dim + i])[0][1] for j in range(a.shape[0])])
-    return corr
+#
+# Correlation/Distance functions
+#
 
-def magnitude(x):
-    return np.sqrt(np.tensordot(x, x, axes=-1))
-
-def save(name="default.txt", data=[], mode="w"):
-    os.makedirs(os.path.dirname(name), exist_ok=True)
-    with open(name, mode=mode) as f:
-        np.savetxt(f, data, fmt="%-.5f")
+def pearsonr(a, b):
+    smaller, larger = small_large(a, b)
+    corr = [np.corrcoef(np.vstack((emb, larger)))[0][1:] for emb in smaller]
+    return np.array(corr)
     
-def layer_norm(data):
-    layer_norm = torch.nn.LayerNorm(data.shape[0], dtype=torch.float64)
-    return layer_norm(torch.from_numpy(data.reshape(1, 1, -1))).detach().numpy().reshape(-1)
+def spearmanr(a, b):
+    smaller, larger = small_large(a, b)
+    corr = [stats.spearmanr(np.vstack((emb, larger)), axis=1)[0][0][1:] for emb in smaller]
+    return np.array(corr)    
 
 def cossim3d(data):
     return np.array([cosine_similarity(e) for e in data])
-    
+
+def cossim_partial(a, b, window=None):
+    smaller, larger = small_large(a, b)
+    if window is None:
+        window = smaller.shape[0]
+    smaller_slides = slide(smaller, window=window)
+    larger_slides = slide(larger, window=window)
+    results = [cosine_similarity(np.vstack((slide, larger_slides)))[0] for slide in smaller_slides]
+    return np.array(results)
+
 def cossim(compared_set, comparison_set):
     return np.array([cosine_similarity(np.vstack((compared, comparison_set)))[0] for compared in compared_set])
 
-def slice_of_slice(data, slice1, slice2):
-    return np.array([data[i, slice2[0]:slice2[1]] for i in range(slice1[0], slice1[1])])
+#
+# Statistic analysis functions
+#
 
+def variance2d(data):
+    return np.var(data, axis=1)
+
+def variance3d(data):
+    return np.var(data, axis=2)
+
+def std2d(data):
+    return np.std(data, axis=1)
+
+def std3d(data):
+    return np.std(data, axis=1)
+
+#
+# Dimentionality reduction functions
+#
+    
 def pca(data, components=3):
     pca = PCA(n_components=components)
     pca_result = pca.fit_transform(data)
     
     print('Shape: {}'.format(pca_result.shape))
-    
     print('Explained variation per principal component: {}'.format(pca.explained_variance_ratio_))
-    
     print('Cumulative explained variation for {} principal components: {}'.format(components, np.sum(pca.explained_variance_ratio_)))
     
     return pca_result
 
 def tsne(data, components=3):
     tsne = TSNE(n_components=components, verbose=0, perplexity=40, n_iter=300)
-    tsne_pca_results = tsne.fit_transform(data)
-    return tsne_pca_results
+    tsne_results = tsne.fit_transform(data)
+    return tsne_results
+
+def umap(data, components=3):
+    umap = UMAP(n_components=components, init='random', random_state=0)
+    umap_results = umap.fit_transform(data)
+    return umap_results
